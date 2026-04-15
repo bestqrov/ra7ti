@@ -41,8 +41,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# nginx + supervisor for multi-process management
-RUN apk add --no-cache nginx supervisor openssl
+# nginx for reverse-proxying frontend ↔ backend
+RUN apk add --no-cache nginx openssl
 
 # ── Backend (prod deps only) ──────────────────────────────────────────────────
 WORKDIR /app/backend
@@ -59,9 +59,8 @@ COPY --from=frontend-builder /frontend/public              ./public
 COPY --from=frontend-builder /frontend/.next/standalone    ./
 COPY --from=frontend-builder /frontend/.next/static        ./.next/static
 
-# ── nginx + supervisor config ─────────────────────────────────────────────────
-COPY docker/nginx/app.conf   /etc/nginx/http.d/default.conf
-COPY docker/supervisord.conf /etc/supervisord.conf
+# ── nginx config ──────────────────────────────────────────────────────────────
+COPY docker/nginx/app.conf /etc/nginx/http.d/default.conf
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh
