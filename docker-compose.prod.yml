@@ -1,0 +1,173 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Ra7ti – PRODUCTION  (Coolify / Hostinger VPS)                       ║
+# ║                                                                       ║
+# ║  Coolify reads this file. Set env vars in Coolify's dashboard.        ║
+# ║  Traefik (bundled with Coolify) handles SSL + domain routing.         ║
+# ║                                                                       ║
+# ║  Deploy:                                                              ║
+# ║    coolify → New Project → Docker Compose → point to this file        ║
+# ║  Manual:                                                              ║
+# ║    docker compose -f docker-compose.prod.yml --env-file .env up -d    ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+version: '3.9'
+
+services:
+
+  # ════════════════════════════════════════════════════════════════════════
+  # 1. PostgreSQL
+  # ════════════════════════════════════════════════════════════════════════
+  postgres:
+    image: postgres:16-alpine
+    container_name: ra7ti_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB:-ra7ti}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ra7ti_internal
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+    # ── Postgres is NOT exposed to host in production ──────────────────
+    # Access it via backend container on the internal network.
+
+  # ════════════════════════════════════════════════════════════════════════
+  # 2. Backend – NestJS API
+  # ════════════════════════════════════════════════════════════════════════
+  backend:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-ra7ti}/backend:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: ra7ti_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV:      production
+      PORT:          3000
+      DATABASE_URL:  postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ra7ti}?schema=public&sslmode=prefer
+      JWT_SECRET:    ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      DEFAULT_COMMISSION_RATE: ${DEFAULT_COMMISSION_RATE:-5.0}
+      BOOST_BASIC_PRICE:    ${BOOST_BASIC_PRICE:-5}
+      BOOST_STANDARD_PRICE: ${BOOST_STANDARD_PRICE:-12}
+      BOOST_PREMIUM_PRICE:  ${BOOST_PREMIUM_PRICE:-25}
+    networks:
+      - ra7ti_internal
+      - ra7ti_public        # must be on public net so Traefik can route to it
+    expose:
+      - '3000'
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/api/v1/health || exit 1']
+      interval: 20s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    # ── Coolify / Traefik routing labels ─────────────────────────────────
+    # Coolify auto-injects these when you set the domain in its dashboard.
+    # Keep them here as a reference – Coolify will override/merge.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ra7ti-api.rule=Host(`${API_DOMAIN:-api.ra7ti.com}`)"
+      - "traefik.http.routers.ra7ti-api.entrypoints=websecure"
+      - "traefik.http.routers.ra7ti-api.tls=true"
+      - "traefik.http.routers.ra7ti-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ra7ti-api.loadbalancer.server.port=3000"
+      # HTTP → HTTPS redirect
+      - "traefik.http.routers.ra7ti-api-http.rule=Host(`${API_DOMAIN:-api.ra7ti.com}`)"
+      - "traefik.http.routers.ra7ti-api-http.entrypoints=web"
+      - "traefik.http.routers.ra7ti-api-http.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+
+  # ════════════════════════════════════════════════════════════════════════
+  # 3. Frontend – Next.js dashboard
+  # ════════════════════════════════════════════════════════════════════════
+  frontend:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-ra7ti}/frontend:${IMAGE_TAG:-latest}
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://${API_DOMAIN:-api.ra7ti.com}/api/v1
+    container_name: ra7ti_frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV:            production
+      PORT:                3001
+      NEXT_PUBLIC_API_URL: https://${API_DOMAIN:-api.ra7ti.com}/api/v1
+    networks:
+      - ra7ti_public
+    expose:
+      - '3001'
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3001/ || exit 1']
+      interval: 20s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ra7ti-app.rule=Host(`${APP_DOMAIN:-app.ra7ti.com}`)"
+      - "traefik.http.routers.ra7ti-app.entrypoints=websecure"
+      - "traefik.http.routers.ra7ti-app.tls=true"
+      - "traefik.http.routers.ra7ti-app.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ra7ti-app.loadbalancer.server.port=3001"
+      - "traefik.http.routers.ra7ti-app-http.rule=Host(`${APP_DOMAIN:-app.ra7ti.com}`)"
+      - "traefik.http.routers.ra7ti-app-http.entrypoints=web"
+      - "traefik.http.routers.ra7ti-app-http.middlewares=redirect-to-https"
+
+# ════════════════════════════════════════════════════════════════════════
+# Networks
+# ════════════════════════════════════════════════════════════════════════
+networks:
+  ra7ti_internal:
+    # postgres ↔ backend only — never exposed to Traefik
+    internal: true
+    driver: bridge
+
+  ra7ti_public:
+    # backend + frontend exposed to Traefik (created externally by Coolify)
+    external: true
+    name: ${TRAEFIK_NETWORK:-coolify}
+
+# ════════════════════════════════════════════════════════════════════════
+# Volumes
+# ════════════════════════════════════════════════════════════════════════
+volumes:
+  postgres_data:
+    driver: local

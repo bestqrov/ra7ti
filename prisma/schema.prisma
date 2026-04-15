@@ -1,0 +1,223 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum Role {
+  PASSENGER
+  COMPANY_ADMIN
+  SUPER_ADMIN
+}
+
+enum BusType {
+  STANDARD
+  VIP
+  SLEEPER
+}
+
+enum TripStatus {
+  SCHEDULED
+  ACTIVE
+  CANCELLED
+  COMPLETED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  REFUNDED
+  FAILED
+}
+
+enum BoostPackage {
+  BASIC      // 24h  – e.g. $5
+  STANDARD   // 72h  – e.g. $12
+  PREMIUM    // 7d   – e.g. $25
+}
+
+enum BoostStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+// ─────────────────────────────────────────────
+// Models
+// ─────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  phone     String?
+  role      Role     @default(PASSENGER)
+
+  // Optional link to a company (for COMPANY_ADMIN)
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  bookings  Booking[]
+  payments  Payment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@map("users")
+}
+
+model Company {
+  id             String   @id @default(uuid())
+  name           String
+  email          String   @unique
+  phone          String
+  logo           String?
+  description    String?
+  commissionRate Float    @default(5.0) // 5–7 %
+  isActive       Boolean  @default(true)
+
+  users    User[]
+  buses    Bus[]
+  trips    Trip[]
+  bookings Booking[]
+  payments Payment[]
+  boosts   Boost[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("companies")
+}
+
+model Bus {
+  id          String  @id @default(uuid())
+  companyId   String
+  company     Company @relation(fields: [companyId], references: [id])
+  plateNumber String  @unique
+  type        BusType @default(STANDARD)
+  capacity    Int
+  amenities   Json?   // e.g. { wifi: true, ac: true, usb: true }
+  isActive    Boolean @default(true)
+
+  trips Trip[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@map("buses")
+}
+
+model Trip {
+  id             String     @id @default(uuid())
+  companyId      String
+  company        Company    @relation(fields: [companyId], references: [id])
+  busId          String
+  bus            Bus        @relation(fields: [busId], references: [id])
+  origin         String
+  destination    String
+  departureAt    DateTime
+  arrivalAt      DateTime
+  price          Float
+  availableSeats Int
+  status         TripStatus @default(SCHEDULED)
+
+  // Boost flags (denormalised for fast queries)
+  isBoosted      Boolean   @default(false)
+  boostExpiresAt DateTime?
+
+  bookings Booking[]
+  boosts   Boost[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([origin, destination, departureAt])
+  @@index([isBoosted])
+  @@map("trips")
+}
+
+model Booking {
+  id          String        @id @default(uuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  tripId      String
+  trip        Trip          @relation(fields: [tripId], references: [id])
+  companyId   String
+  company     Company       @relation(fields: [companyId], references: [id])
+  seatsCount  Int
+  seatNumbers Json?         // e.g. ["A1", "A2"]
+  totalPrice  Float
+  status      BookingStatus @default(PENDING)
+
+  payment Payment?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([tripId])
+  @@index([companyId])
+  @@map("bookings")
+}
+
+model Payment {
+  id               String        @id @default(uuid())
+  bookingId        String        @unique
+  booking          Booking       @relation(fields: [bookingId], references: [id])
+  companyId        String
+  company          Company       @relation(fields: [companyId], references: [id])
+  userId           String
+  user             User          @relation(fields: [userId], references: [id])
+  amount           Float         // gross amount paid by passenger
+  commissionRate   Float         // e.g. 5.0
+  commissionAmount Float         // amount captured by platform
+  netAmount        Float         // amount credited to company
+  status           PaymentStatus @default(PENDING)
+  paymentMethod    String?       // "card" | "cash" | "wallet"
+  transactionId    String?       // external gateway ref
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([userId])
+  @@map("payments")
+}
+
+model Boost {
+  id        String       @id @default(uuid())
+  tripId    String
+  trip      Trip         @relation(fields: [tripId], references: [id])
+  companyId String
+  company   Company      @relation(fields: [companyId], references: [id])
+  package   BoostPackage
+  price     Float
+  startsAt  DateTime
+  expiresAt DateTime
+  status    BoostStatus  @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tripId])
+  @@index([companyId])
+  @@map("boosts")
+}

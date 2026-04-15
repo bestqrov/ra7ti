@@ -1,0 +1,104 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Ra7ti – LOCAL DEVELOPMENT                                           ║
+# ║  Usage: docker-compose up --build                                    ║
+# ║  Services: postgres · backend (hot-reload) · frontend (hot-reload)   ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+version: '3.9'
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ra7ti_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB:       ${POSTGRES_DB:-ra7ti}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ra7ti_net
+
+  # ── Backend – NestJS (hot-reload via ts-node-dev) ───────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      target: builder          # stop at builder stage for dev
+    container_name: ra7ti_backend_dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL:  postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-ra7ti}?schema=public
+      JWT_SECRET:    ${JWT_SECRET:-dev-secret-change-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      PORT:          3000
+      NODE_ENV:      development
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./backend/src:/app/src:ro     # hot-reload source
+      - ./prisma:/app/prisma:ro       # schema changes
+    command: >
+      sh -c "npx prisma migrate deploy --schema=./prisma/schema.prisma
+             && npm run start:dev"
+    networks:
+      - ra7ti_net
+
+  # ── Frontend – Next.js (hot-reload) ────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend.Dockerfile
+      target: deps             # only install deps for dev
+    container_name: ra7ti_frontend_dev
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3000/api/v1
+      NODE_ENV: development
+    ports:
+      - '3001:3001'
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+    command: npm run dev
+    networks:
+      - ra7ti_net
+
+  # ── Nginx – local reverse proxy (optional, mirrors prod routing) ────────
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ra7ti_nginx_dev
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - '80:80'
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - ra7ti_net
+    profiles:
+      - proxy          # opt-in: docker-compose --profile proxy up
+
+volumes:
+  postgres_dev_data:
+
+networks:
+  ra7ti_net:
+    driver: bridge
