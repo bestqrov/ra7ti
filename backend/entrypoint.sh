@@ -11,7 +11,7 @@ echo ""
 
 # ── 1. Wait for PostgreSQL ────────────────────────────────────────────────────
 echo "⏳  Waiting for PostgreSQL..."
-until npx prisma db execute --stdin --schema=./prisma/schema.prisma <<< "SELECT 1" > /dev/null 2>&1; do
+until echo "SELECT 1" | npx prisma db execute --stdin --schema=./prisma/schema.prisma > /dev/null 2>&1; do
   echo "   postgres not ready – retrying in 2s…"
   sleep 2
 done
