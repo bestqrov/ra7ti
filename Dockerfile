@@ -4,30 +4,26 @@
 # ║                            /* → Next.js  (3001)                     ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 
-# ── Stage 1: backend deps ────────────────────────────────────────────────────
-FROM node:20-alpine AS backend-deps
-WORKDIR /backend
-RUN apk add --no-cache libc6-compat
-COPY backend/package*.json ./
-RUN npm ci --frozen-lockfile
-
-# ── Stage 2: frontend deps ───────────────────────────────────────────────────
+# ── Stage 1: frontend deps ───────────────────────────────────────────────────
 FROM node:20-alpine AS frontend-deps
 WORKDIR /frontend
 RUN apk add --no-cache libc6-compat
 COPY frontend/package*.json ./
 RUN npm ci --frozen-lockfile
 
-# ── Stage 3: build backend ───────────────────────────────────────────────────
+# ── Stage 2: build backend ───────────────────────────────────────────────────
 FROM node:20-alpine AS backend-builder
 WORKDIR /backend
-COPY --from=backend-deps /backend/node_modules ./node_modules
+RUN apk add --no-cache libc6-compat
+# Install ALL deps (including devDeps) so @nestjs/cli is available for build
+COPY backend/package*.json ./
+RUN npm ci --frozen-lockfile
 COPY backend/ .
 COPY prisma/ ./prisma/
 RUN npx prisma generate --schema=./prisma/schema.prisma
 RUN npm run build
 
-# ── Stage 4: build frontend ──────────────────────────────────────────────────
+# ── Stage 3: build frontend ──────────────────────────────────────────────────
 FROM node:20-alpine AS frontend-builder
 WORKDIR /frontend
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -38,7 +34,7 @@ ARG NEXT_PUBLIC_API_URL=/api/v1
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN npm run build
 
-# ── Stage 5: production runner ───────────────────────────────────────────────
+# ── Stage 4: production runner ───────────────────────────────────────────────
 FROM node:20-alpine AS runner
 WORKDIR /app
 
