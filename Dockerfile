@@ -17,7 +17,9 @@ WORKDIR /backend
 RUN apk add --no-cache libc6-compat openssl
 # npm install (not ci) ensures devDeps like @nestjs/cli are always resolved
 COPY backend/package*.json ./
-RUN npm install
+# NODE_ENV may be set to production by the build host (Coolify) –
+# override it so npm installs devDependencies (@nestjs/cli, typescript…)
+RUN NODE_ENV=development npm install
 COPY backend/ .
 COPY prisma/ ./prisma/
 RUN npx prisma generate --schema=./prisma/schema.prisma
