@@ -50,7 +50,7 @@ services:
     image: ${REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-ra7ti}/backend:${IMAGE_TAG:-latest}
     build:
       context: .
-      dockerfile: docker/backend.Dockerfile
+      dockerfile: backend/Dockerfile
     container_name: ra7ti_backend
     restart: unless-stopped
     depends_on:
@@ -109,7 +109,7 @@ services:
     image: ${REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-ra7ti}/frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
-      dockerfile: ../docker/frontend.Dockerfile
+      dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: https://${API_DOMAIN:-api.ra7ti.com}/api/v1
     container_name: ra7ti_frontend

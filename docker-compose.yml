@@ -33,7 +33,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: docker/backend.Dockerfile
+      dockerfile: backend/Dockerfile
       target: builder          # stop at builder stage for dev
     container_name: ra7ti_backend_dev
     restart: unless-stopped
@@ -61,7 +61,7 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: ../docker/frontend.Dockerfile
+      dockerfile: Dockerfile
       target: deps             # only install deps for dev
     container_name: ra7ti_frontend_dev
     restart: unless-stopped
