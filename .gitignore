@@ -18,6 +18,7 @@ backend/dist/
 
 # ── Prisma generated client ───────────────────────────────────────────────────
 backend/node_modules/.prisma/
+backend/prisma/generated/
 
 # ── Logs ─────────────────────────────────────────────────────────────────────
 *.log

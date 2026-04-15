@@ -50,7 +50,7 @@ services:
       - '3000:3000'
     volumes:
       - ./backend/src:/app/src:ro     # hot-reload source
-      - ./prisma:/app/prisma:ro       # schema changes
+      - ./backend/prisma:/app/prisma:ro  # schema changes
     command: >
       sh -c "npx prisma migrate deploy --schema=./prisma/schema.prisma
              && npm run start:dev"

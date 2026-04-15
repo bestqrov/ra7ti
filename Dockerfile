@@ -15,8 +15,7 @@ COPY backend/package*.json ./
 RUN NODE_ENV=development npm install
 
 COPY backend/ .
-COPY prisma/ ./prisma/
-RUN npx prisma generate --schema=./prisma/schema.prisma
+RUN npx prisma generate
 RUN npm run build
 
 # ── Stage 2: build frontend ──────────────────────────────────────────────────

@@ -9,7 +9,7 @@ echo "Ra7ti – Starting"
 cd /app/backend
 echo "Running migrations..."
 i=0
-while ! npx prisma migrate deploy --schema=./prisma/schema.prisma; do
+while ! npx prisma migrate deploy; do
   i=$((i + 1))
   if [ "$i" -ge 15 ]; then
     echo "Migration failed after 15 attempts – exiting"
