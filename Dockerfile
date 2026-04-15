@@ -4,67 +4,66 @@
 # ║                            /* → Next.js  (3001)                     ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 
-# ── Stage 1: frontend deps ───────────────────────────────────────────────────
-FROM node:20-alpine AS frontend-deps
-WORKDIR /frontend
-RUN apk add --no-cache libc6-compat
-COPY frontend/package*.json ./
-RUN npm ci --frozen-lockfile
-
-# ── Stage 2: build backend ───────────────────────────────────────────────────
+# ── Stage 1: build backend ───────────────────────────────────────────────────
 FROM node:20-alpine AS backend-builder
 WORKDIR /backend
 RUN apk add --no-cache libc6-compat openssl
-# npm install (not ci) ensures devDeps like @nestjs/cli are always resolved
+
 COPY backend/package*.json ./
-# NODE_ENV may be set to production by the build host (Coolify) –
-# override it so npm installs devDependencies (@nestjs/cli, typescript…)
+# Coolify sets NODE_ENV=production which causes npm to skip devDependencies.
+# Override so @nestjs/cli, typescript, etc. are installed for the build.
 RUN NODE_ENV=development npm install
+
 COPY backend/ .
 COPY prisma/ ./prisma/
 RUN npx prisma generate --schema=./prisma/schema.prisma
 RUN npm run build
 
-# ── Stage 3: build frontend ──────────────────────────────────────────────────
+# ── Stage 2: build frontend ──────────────────────────────────────────────────
 FROM node:20-alpine AS frontend-builder
 WORKDIR /frontend
+RUN apk add --no-cache libc6-compat
 ENV NEXT_TELEMETRY_DISABLED=1
-COPY --from=frontend-deps /frontend/node_modules ./node_modules
+
+COPY frontend/package*.json ./
+# Same issue: override NODE_ENV so tailwindcss, postcss, typescript etc. install
+RUN NODE_ENV=development npm install
+
 COPY frontend/ .
-# /api/v1 is a relative path – nginx routes it to the backend on the same domain
+# /api/v1 is relative – nginx on the same container routes it to the backend
 ARG NEXT_PUBLIC_API_URL=/api/v1
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-RUN npm run build
+RUN NODE_ENV=development npm run build
 
-# ── Stage 4: production runner ───────────────────────────────────────────────
+# ── Stage 3: production runner ───────────────────────────────────────────────
 FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-# nginx + supervisor for multi-process
+# nginx + supervisor for multi-process management
 RUN apk add --no-cache nginx supervisor openssl
 
-# ── Backend ──────────────────────────────────────────────────────────────────
+# ── Backend (prod deps only) ──────────────────────────────────────────────────
 WORKDIR /app/backend
 COPY backend/package*.json ./
 RUN npm ci --omit=dev --frozen-lockfile
-COPY --from=backend-builder /backend/dist            ./dist
-COPY --from=backend-builder /backend/prisma          ./prisma
-COPY --from=backend-builder /backend/node_modules/.prisma ./node_modules/.prisma
-COPY --from=backend-builder /backend/node_modules/@prisma ./node_modules/@prisma
+COPY --from=backend-builder /backend/dist                  ./dist
+COPY --from=backend-builder /backend/prisma                ./prisma
+COPY --from=backend-builder /backend/node_modules/.prisma  ./node_modules/.prisma
+COPY --from=backend-builder /backend/node_modules/@prisma  ./node_modules/@prisma
 
-# ── Frontend ─────────────────────────────────────────────────────────────────
+# ── Frontend (standalone Next.js output) ──────────────────────────────────────
 WORKDIR /app/frontend
-COPY --from=frontend-builder /frontend/public             ./public
-COPY --from=frontend-builder /frontend/.next/standalone   ./
-COPY --from=frontend-builder /frontend/.next/static       ./.next/static
+COPY --from=frontend-builder /frontend/public              ./public
+COPY --from=frontend-builder /frontend/.next/standalone    ./
+COPY --from=frontend-builder /frontend/.next/static        ./.next/static
 
-# ── Config files ─────────────────────────────────────────────────────────────
-COPY docker/nginx/app.conf    /etc/nginx/http.d/default.conf
-COPY docker/supervisord.conf  /etc/supervisord.conf
+# ── nginx + supervisor config ─────────────────────────────────────────────────
+COPY docker/nginx/app.conf   /etc/nginx/http.d/default.conf
+COPY docker/supervisord.conf /etc/supervisord.conf
 
-# ── Entrypoint ───────────────────────────────────────────────────────────────
+# ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
