@@ -14,10 +14,10 @@ RUN npm ci --frozen-lockfile
 # ── Stage 2: build backend ───────────────────────────────────────────────────
 FROM node:20-alpine AS backend-builder
 WORKDIR /backend
-RUN apk add --no-cache libc6-compat
-# Install ALL deps (including devDeps) so @nestjs/cli is available for build
+RUN apk add --no-cache libc6-compat openssl
+# npm install (not ci) ensures devDeps like @nestjs/cli are always resolved
 COPY backend/package*.json ./
-RUN npm ci --frozen-lockfile
+RUN npm install
 COPY backend/ .
 COPY prisma/ ./prisma/
 RUN npx prisma generate --schema=./prisma/schema.prisma
@@ -41,7 +41,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # nginx + supervisor for multi-process
-RUN apk add --no-cache nginx supervisor
+RUN apk add --no-cache nginx supervisor openssl
 
 # ── Backend ──────────────────────────────────────────────────────────────────
 WORKDIR /app/backend
